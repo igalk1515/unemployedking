@@ -79,6 +79,14 @@ export default function RootLayout({
               Read-only Gmail. Bodies counted, never stored. The shame stays
               aggregate.
             </p>
+            <a
+              href="https://github.com/igalk1515/unemployedking"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4 transition-colors hover:text-ink"
+            >
+              Open source on GitHub
+            </a>
           </div>
         </footer>
       </body>
