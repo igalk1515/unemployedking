@@ -1,0 +1,110 @@
+// UnemployedKing — data model
+// Dev runs on SQLite (zero setup). The schema is Postgres-portable:
+// switch provider to "postgresql", set DATABASE_URL, run `prisma migrate dev`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String?
+  image            String?
+  // Public identity (pseudonym-friendly, Riot-ID style)
+  slug             String   @unique
+  displayName      String?
+  publicProfile    Boolean  @default(true)
+  leaderboardOptIn Boolean  @default(true)
+  // Public-profile field visibility: comma-joined keys the user has hidden
+  // (see HIDEABLE_PROFILE_FIELDS in lib/types.ts). Empty = show everything.
+  hiddenProfileFields String @default("")
+  ghostAfterDays   Int      @default(30)
+  // First-sync Gmail lookback, user-configurable, hard-capped at 730 in code
+  backfillWindowDays Int    @default(365)
+  // Recurring auto-sync cadence in days (null = manual only). Capped at
+  // MAX_AUTO_SYNC_INTERVAL_DAYS (90) in code; honored by /api/cron/auto-sync.
+  autoSyncIntervalDays Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  emailAccounts EmailAccount[]
+  applications  Application[]
+  events        Event[]
+}
+
+// A connected Gmail inbox. We store ONLY the encrypted refresh token and sync
+// cursors — never message content. Gmail itself is the database of record.
+model EmailAccount {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailAddress          String
+  encryptedRefreshToken String?
+  historyId             String? // Gmail incremental-sync cursor
+  lastSyncedAt          DateTime?
+  backfillDone          Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+
+  @@unique([userId, emailAddress])
+}
+
+model Application {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company           String
+  companyNormalized String // lowercase/trimmed, for matching
+  role              String?
+  source            String   @default("email") // email | manual | extension
+  gmailThreadId     String? // linkage anchor for ATS reply threads
+  appliedAt         DateTime
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  events Event[]
+
+  @@index([userId, companyNormalized])
+  @@index([userId, gmailThreadId])
+  @@index([userId, appliedAt])
+}
+
+// Append-only event log. Application status is DERIVED from events, never
+// stored. The pipeline (source=email) must never overwrite human intent
+// (source=manual); the ghost sweeper writes source=system.
+model Event {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId  String?
+  application    Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  type           String // applied | rejected | ghosted | interview | offer
+  source         String // email | manual | system
+  confidence     String       @default("high") // high | medium | low
+  occurredAt     DateTime
+  // Pointers into Gmail — never content
+  gmailMessageId String?      @unique
+  gmailThreadId  String?
+  senderDomain   String?
+  createdAt      DateTime     @default(now())
+
+  @@index([userId, type, occurredAt])
+  @@index([applicationId, occurredAt])
+}
+
+// While the app is in Google "testing" mode, only manually-added test users can
+// sign in. Friends who aren't on that list yet drop their email here; the owner
+// sees pending ones on the dashboard and adds them to the OAuth consent screen.
+model AccessRequest {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  status    String   @default("pending") // pending | added
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+}
