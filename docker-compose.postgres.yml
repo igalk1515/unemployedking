@@ -1,0 +1,29 @@
+# UnemployedKing — local Postgres for the future SQLite → Postgres switch.
+# See README.md "Switching to Postgres".
+#
+#   docker compose -f docker-compose.postgres.yml up -d
+#
+# Matching DATABASE_URL:
+#   postgresql://unemployedking:unemployedking@localhost:5432/unemployedking
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: unemployedking-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: unemployedking
+      POSTGRES_PASSWORD: unemployedking
+      POSTGRES_DB: unemployedking
+    ports:
+      - "5432:5432"
+    volumes:
+      - unemployedking_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unemployedking -d unemployedking"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  unemployedking_pgdata:

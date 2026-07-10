@@ -1,26 +1,65 @@
 @import "tailwindcss";
 
+/* UnemployedKing design tokens — dark-only, the brand commits to dark
+   (DESIGN.md §4.6). --gold is chrome only, never a data series. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0d0d0d; /* page */
+  --surface: #1a1a19; /* cards */
+  --border: rgba(255, 255, 255, 0.1);
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --ink-muted: #898781;
+  --grid: #2c2c2a;
+  --gold: #fab219; /* crown/brand accent — chrome only, never a data series */
+  --blue: #3987e5;
+  --aqua: #199e70;
+  --violet: #9085e9;
+  --red: #e66767;
+  --good: #0ca30c;
+  --critical: #d03b3b;
+  /* ordinal funnel ramp (blue, light→dark, max depth #184f95) */
+  --ramp-1: #86b6ef;
+  --ramp-2: #3987e5;
+  --ramp-3: #256abf;
+  --ramp-4: #184f95;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* System-ui stack per DESIGN §4.6 chart/stat rules; emoji fonts included
+     because the emoji ARE the iconography. */
+  --font-sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-edge: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-muted: var(--ink-muted);
+  --color-grid: var(--grid);
+  --color-gold: var(--gold);
+  --color-blue: var(--blue);
+  --color-aqua: var(--aqua);
+  --color-violet: var(--violet);
+  --color-red: var(--red);
+  --color-good: var(--good);
+  --color-critical: var(--critical);
+  --color-ramp-1: var(--ramp-1);
+  --color-ramp-2: var(--ramp-2);
+  --color-ramp-3: var(--ramp-3);
+  --color-ramp-4: var(--ramp-4);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
+  background: var(--bg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+::selection {
+  background: var(--gold);
+  color: var(--bg);
 }
