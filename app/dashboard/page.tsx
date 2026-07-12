@@ -11,6 +11,7 @@ import {
   getApplicationsWithStatus,
   getProfileStats,
 } from '@/lib/stats/profile';
+import { getMyCompanies } from '@/lib/stats/myCompanies';
 import { MAX_AUTO_SYNC_INTERVAL_DAYS } from '@/lib/gmail/autoSync';
 import { parseHiddenProfileFields } from '@/lib/types';
 import type { ApplicationStatus, ApplicationWithStatus } from '@/lib/types';
@@ -18,6 +19,7 @@ import { AccessRequestsCard } from '@/components/AccessRequestsCard';
 import { AutoSyncForm } from '@/components/AutoSyncForm';
 import { CopyUrlButton } from '@/components/CopyUrlButton';
 import { ManualAddForm } from '@/components/ManualAddForm';
+import { MyCompaniesCard } from '@/components/MyCompaniesCard';
 import { PrivacyForm } from '@/components/PrivacyForm';
 import { StatTile } from '@/components/StatTile';
 import { EVENT_THEME, StatusChip } from '@/components/StatusChip';
@@ -634,10 +636,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     Number.parseInt(firstString(sp.appsPage) ?? '1', 10) || 1,
   );
 
-  const [gmail, stats, applications, dbUser] = await Promise.all([
+  const [gmail, stats, applications, myCompanies, dbUser] = await Promise.all([
     getGmailState(user.id),
     getProfileStats(user.id),
     getApplicationsWithStatus(user.id),
+    getMyCompanies(user.id),
     db.user.findUnique({
       where: { id: user.id },
       select: {
@@ -896,6 +899,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           />
         </div>
       </section>
+
+      {/* Who did this to you — private, owner-only view over their own data. */}
+      <MyCompaniesCard
+        ghostedMe={myCompanies.ghostedMe}
+        rejectedMe={myCompanies.rejectedMe}
+        mostApplied={myCompanies.mostApplied}
+      />
 
       {/* Gmail + manual add */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
