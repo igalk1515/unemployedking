@@ -190,3 +190,30 @@ export interface Leaderboards {
   allTimeRejected: LeaderboardEntry[];
   speedrun: LeaderboardEntry[]; // fastest applied->rejected, value = hours (asc)
 }
+
+/** One company on a company board. `applications` is the sample behind the value. */
+export interface CompanyEntry {
+  rank: number;
+  company: string;
+  value: number;
+  applications: number;
+}
+
+/**
+ * The boards where the companies get ranked, for once. Totals across every
+ * opted-in user.
+ *
+ * Deliberately counts and durations, not percentages: "Oracle ghosted 43
+ * applications" is a fact about what we tracked. "Oracle ghosts 100% of
+ * applicants" is a claim about the company, and we don't have the sample to
+ * make it.
+ */
+export interface CompanyLeaderboards {
+  mostGhosting: CompanyEntry[]; // applications they ghosted
+  mostRejecting: CompanyEntry[]; // applications they rejected
+  fastestRejection: CompanyEntry[]; // mean hours applied->rejected (asc)
+  mostApplied: CompanyEntry[]; // applications received
+  /** Total applications behind every board — the sample the reader deserves. */
+  totalApplications: number;
+  totalCompanies: number;
+}
