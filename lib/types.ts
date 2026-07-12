@@ -183,3 +183,23 @@ export interface Leaderboards {
   allTimeRejected: LeaderboardEntry[];
   speedrun: LeaderboardEntry[]; // fastest applied->rejected, value = hours (asc)
 }
+
+/** One company on a company board. `applications` is the sample behind the value. */
+export interface CompanyEntry {
+  rank: number;
+  company: string;
+  value: number;
+  applications: number;
+}
+
+/** The boards where the companies get ranked, for once. */
+export interface CompanyLeaderboards {
+  mostGhosting: CompanyEntry[]; // count of applications they ghosted
+  mostRejecting: CompanyEntry[]; // count of applications they rejected
+  mostApplied: CompanyEntry[]; // count of applications received
+  ghostRate: CompanyEntry[]; // % of their applications ghosted (desc)
+  bestResponders: CompanyEntry[]; // % of their applications that got ANY reply (desc)
+  fastestRejection: CompanyEntry[]; // mean hours applied->rejected (asc)
+  /** Sample size a company needs before it can appear on a rate board. */
+  minApplicationsForRate: number;
+}
