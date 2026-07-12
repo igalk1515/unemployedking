@@ -5,7 +5,12 @@
 // any sync over the same mail is a cheap no-op.
 
 import { db } from "@/lib/db";
-import { ATS_DOMAINS, classifyEmail, hasApplicationKeywords, isAtsDomain } from "@/lib/classifier";
+import {
+  ATS_DOMAINS,
+  classifyEmailTraced,
+  hasApplicationKeywords,
+  isAtsDomain,
+} from "@/lib/classifier";
 import type { SyncResult } from "@/lib/types";
 import {
   GmailAuthError,
@@ -108,6 +113,9 @@ function emptySyncResult(): SyncResult {
     hasMore: false,
     totalCandidates: 0,
     remaining: 0,
+    rulesClassified: 0,
+    llmClassified: 0,
+    llmCalls: 0,
   };
 }
 
@@ -126,6 +134,22 @@ function pushNotice(result: SyncResult, message: string): void {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * One line per sync run in the journal (`journalctl -u unemployedking`), so the
+ * rules/LLM split — and what the LLM cost — is auditable after the fact and not
+ * only visible in the browser. `llm=calls→events` reads as "billed calls →
+ * events they actually produced"; the gap is mail Gemini read and discarded.
+ */
+function logRun(kind: "backfill" | "incremental", userId: string, result: SyncResult): void {
+  console.log(
+    `[sync/${kind}] user ${userId}: scanned ${result.scanned}, ` +
+      `events ${result.eventsCreated} (rules ${result.rulesClassified}, llm ${result.llmClassified}), ` +
+      `llm=${result.llmCalls}→${result.llmClassified}, ` +
+      `apps ${result.applicationsCreated}, skipped ${result.skipped}` +
+      (result.hasMore ? ", paused at cap (more to do)" : ""),
+  );
 }
 
 type SyncAccount = {
@@ -223,12 +247,14 @@ async function processMessage(
       return "skipped";
     }
 
-    const cls = await classifyEmail({
+    const { classification: cls, llmCalled } = await classifyEmailTraced({
       from: extracted.from,
       subject: extracted.subject,
       bodyText: extracted.bodyText,
       receivedAt: extracted.receivedAt,
     });
+    // Billed whether or not it produced anything — count it before the bail-out.
+    if (llmCalled) result.llmCalls++;
 
     if (!cls || cls.event === "other") {
       result.skipped++;
@@ -236,6 +262,8 @@ async function processMessage(
     }
 
     result.classified++;
+    if (cls.layer === "llm") result.llmClassified++;
+    else result.rulesClassified++;
     const { createdApplication, createdEvent } = await linkAndPersist(userId, cls, {
       messageId: extracted.messageId,
       threadId: extracted.threadId,
@@ -378,6 +406,7 @@ export async function runBackfill(userId: string): Promise<SyncResult> {
     },
   });
 
+  logRun("backfill", userId, result);
   return result;
 }
 
@@ -444,6 +473,7 @@ export async function runIncrementalSync(userId: string): Promise<SyncResult> {
   // re-lists the same window (already-processed messages skip instantly) —
   // failed messages are never silently dropped.
 
+  logRun("incremental", userId, result);
   return result;
 }
 

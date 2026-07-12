@@ -18,6 +18,12 @@ interface Totals {
   classified: number;
   eventsCreated: number;
   applicationsCreated: number;
+  /** Found by the free, deterministic rules layer. */
+  rulesClassified: number;
+  /** Found by Gemini (billed). */
+  llmClassified: number;
+  /** Gemini calls made — billed whether or not they yielded an event. */
+  llmCalls: number;
   errors: string[];
 }
 
@@ -35,7 +41,16 @@ type SyncState =
   | { phase: "error"; message: string; totals: Totals | null; reconnect?: boolean };
 
 function emptyTotals(): Totals {
-  return { batches: 0, classified: 0, eventsCreated: 0, applicationsCreated: 0, errors: [] };
+  return {
+    batches: 0,
+    classified: 0,
+    eventsCreated: 0,
+    applicationsCreated: 0,
+    rulesClassified: 0,
+    llmClassified: 0,
+    llmCalls: 0,
+    errors: [],
+  };
 }
 
 function extractError(body: unknown, status: number): string {
@@ -127,6 +142,9 @@ export function SyncButton() {
         totals.classified += body.classified;
         totals.eventsCreated += body.eventsCreated;
         totals.applicationsCreated += body.applicationsCreated;
+        totals.rulesClassified += body.rulesClassified ?? 0;
+        totals.llmClassified += body.llmClassified ?? 0;
+        totals.llmCalls += body.llmCalls ?? 0;
         for (const e of body.errors) if (!totals.errors.includes(e)) totals.errors.push(e);
 
         setState({ phase: "syncing", totals: { ...totals }, progress: progressFrom(body) });
@@ -250,6 +268,16 @@ function SyncSummary({ totals }: { totals: Totals }) {
       <p className="mt-1 tabular-nums text-ink-muted">
         classified {totals.classified} · new events {totals.eventsCreated} · applications{" "}
         {totals.applicationsCreated} · {totals.batches} batch{totals.batches === 1 ? "" : "es"}
+      </p>
+      <p className="mt-1 tabular-nums text-ink-muted">
+        <span aria-hidden="true">📐</span> rules {totals.rulesClassified} ·{" "}
+        <span aria-hidden="true">🤖</span> AI {totals.llmClassified}
+        {totals.llmCalls > 0 ? (
+          <span className="text-ink-muted">
+            {" "}
+            (from {totals.llmCalls} AI read{totals.llmCalls === 1 ? "" : "s"})
+          </span>
+        ) : null}
       </p>
       {totals.errors.length > 0 ? (
         <details className="mt-1.5">

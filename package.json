@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
-    "classifier:check": "tsx scripts/classifier-check.ts"
+    "classifier:check": "tsx scripts/classifier-check.ts",
+    "classifier:report": "tsx scripts/classifier-report.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

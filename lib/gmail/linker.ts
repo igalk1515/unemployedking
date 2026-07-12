@@ -20,7 +20,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { deriveStatus } from "@/lib/stats/status";
-import type { ClassifiedEmail, Confidence, EventType } from "@/lib/types";
+import type { ClassifiedEmail, ClassifierLayer, Confidence, EventType } from "@/lib/types";
 
 const EVENT_TYPE_BY_CLASSIFICATION: Record<
   Exclude<ClassifiedEmail["event"], "other">,
@@ -63,7 +63,7 @@ export async function linkAndPersist(
     const applicationId = canAutoAttach(cls.confidence, threadApp.events)
       ? threadApp.id
       : null;
-    const createdEvent = await createEvent(userId, applicationId, eventType, cls.confidence, meta);
+    const createdEvent = await createEvent(userId, applicationId, eventType, cls.confidence, cls.layer, meta);
     return { createdApplication: false, createdEvent };
   }
 
@@ -76,7 +76,7 @@ export async function linkAndPersist(
   const target = cls.company ? await findFuzzyTarget(userId, cls.company) : null;
   if (target) {
     const applicationId = canAutoAttach(cls.confidence, target.events) ? target.id : null;
-    const createdEvent = await createEvent(userId, applicationId, eventType, cls.confidence, meta);
+    const createdEvent = await createEvent(userId, applicationId, eventType, cls.confidence, cls.layer, meta);
     return { createdApplication: false, createdEvent };
   }
 
@@ -91,13 +91,13 @@ export async function linkAndPersist(
     const existing = await findBestFuzzyMatch(userId, cls.company);
     if (existing) {
       const applicationId = canAutoAttach(cls.confidence, existing.events) ? existing.id : null;
-      const createdEvent = await createEvent(userId, applicationId, eventType, cls.confidence, meta);
+      const createdEvent = await createEvent(userId, applicationId, eventType, cls.confidence, cls.layer, meta);
       return { createdApplication: false, createdEvent };
     }
     return createApplicationWithEvent(userId, cls, eventType, meta);
   }
 
-  const createdEvent = await createEvent(userId, null, eventType, cls.confidence, meta);
+  const createdEvent = await createEvent(userId, null, eventType, cls.confidence, cls.layer, meta);
   return { createdApplication: false, createdEvent };
 }
 
@@ -206,6 +206,7 @@ async function createEvent(
   applicationId: string | null,
   type: EventType,
   confidence: Confidence,
+  layer: ClassifierLayer,
   meta: LinkMeta,
 ): Promise<boolean> {
   try {
@@ -216,6 +217,7 @@ async function createEvent(
         type,
         source: "email",
         confidence,
+        classifierLayer: layer,
         occurredAt: meta.receivedAt,
         gmailMessageId: meta.messageId,
         gmailThreadId: meta.threadId || null,
@@ -265,6 +267,7 @@ async function createApplicationWithEvent(
           type: eventType,
           source: "email",
           confidence: cls.confidence,
+          classifierLayer: cls.layer,
           occurredAt: meta.receivedAt,
           gmailMessageId: meta.messageId,
           gmailThreadId: meta.threadId || null,

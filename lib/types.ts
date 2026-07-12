@@ -62,13 +62,20 @@ export function parseHiddenProfileFields(
   return out;
 }
 
+/**
+ * Which layer produced a classification. "rules" is free and deterministic;
+ * "llm" means a billed Gemini call. Persisted on Event.classifierLayer so the
+ * split is auditable after the fact (see scripts/classifier-report.ts).
+ */
+export type ClassifierLayer = "rules" | "llm";
+
 /** Output of the email classifier (rules layer or LLM layer). */
 export interface ClassifiedEmail {
   event: "applied_confirmation" | "rejection" | "interview_invite" | "offer" | "other";
   company: string | null;
   role: string | null;
   confidence: Confidence;
-  layer: "rules" | "llm";
+  layer: ClassifierLayer;
 }
 
 export interface EmailInput {
@@ -101,6 +108,16 @@ export interface SyncResult {
    */
   totalCandidates: number;
   remaining: number;
+  /**
+   * Classifier attribution for this run — who found what, and what it cost.
+   *
+   * llmCalls is the money number: the LLM only runs when the rules abstain, and
+   * every call is billed whether or not it yields an event. llmClassified ≤
+   * llmCalls; the gap is mail the LLM read and judged irrelevant.
+   */
+  rulesClassified: number;
+  llmClassified: number;
+  llmCalls: number;
 }
 
 export interface Badge {
