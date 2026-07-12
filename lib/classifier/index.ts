@@ -14,16 +14,33 @@ export { classifyByRules, ATS_DOMAINS, hasApplicationKeywords, isAtsDomain } fro
 export { classifyByLLM } from "./llm";
 export { htmlToText } from "./strip";
 
+/** A classification plus whether it cost us a (billed) Gemini call. */
+export interface TracedClassification {
+  classification: ClassifiedEmail | null;
+  /**
+   * True when the LLM was actually invoked. A null classification alone can't
+   * tell you this: the rules may simply have abstained with no key configured.
+   * The billed-call count is the difference.
+   */
+  llmCalled: boolean;
+}
+
 /**
- * Classify one email. Rules first; if the rules abstain and a Gemini API key
- * is configured, fall back to the LLM; otherwise (or on LLM failure) return
- * null.
+ * Classify one email, reporting whether the LLM was billed. Rules first; if the
+ * rules abstain and a Gemini API key is configured, fall back to the LLM;
+ * otherwise (or on LLM failure) the classification is null.
  */
-export async function classifyEmail(input: EmailInput): Promise<ClassifiedEmail | null> {
+export async function classifyEmailTraced(input: EmailInput): Promise<TracedClassification> {
   const ruled = classifyByRules(input);
-  if (ruled) return ruled;
+  if (ruled) return { classification: ruled, llmCalled: false };
 
-  if (!process.env.GEMINI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY) return { classification: null, llmCalled: false };
 
-  return classifyByLLM(input);
+  // Billed from here on, whatever comes back.
+  return { classification: await classifyByLLM(input), llmCalled: true };
+}
+
+/** Classification only, for callers that don't care what it cost. */
+export async function classifyEmail(input: EmailInput): Promise<ClassifiedEmail | null> {
+  return (await classifyEmailTraced(input)).classification;
 }

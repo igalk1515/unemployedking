@@ -86,6 +86,10 @@ model Event {
   type           String // applied | rejected | ghosted | interview | offer
   source         String // email | manual | system
   confidence     String       @default("high") // high | medium | low
+  // Which classifier layer found this (source=email only): "rules" = free,
+  // deterministic; "llm" = a billed Gemini call. Null for manual/system events
+  // and for email events recorded before this column existed.
+  classifierLayer String?
   occurredAt     DateTime
   // Pointers into Gmail — never content
   gmailMessageId String?      @unique
