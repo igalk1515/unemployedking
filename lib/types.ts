@@ -175,6 +175,13 @@ export interface LeaderboardEntry {
   isKing?: boolean;
 }
 
+/** One company in a user's own breakdown. Private to that user's dashboard. */
+export interface CompanyTally {
+  company: string;
+  value: number;
+  applications: number;
+}
+
 export interface Leaderboards {
   weekStartUtc: Date;
   king: LeaderboardEntry | null; // most rejections this week
