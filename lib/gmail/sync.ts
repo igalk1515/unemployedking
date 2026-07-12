@@ -116,6 +116,9 @@ function emptySyncResult(): SyncResult {
     rulesClassified: 0,
     llmClassified: 0,
     llmCalls: 0,
+    llmInputTokens: 0,
+    llmOutputTokens: 0,
+    llmCostUsd: 0,
   };
 }
 
@@ -143,10 +146,13 @@ function errorMessage(err: unknown): string {
  * events they actually produced"; the gap is mail Gemini read and discarded.
  */
 function logRun(kind: "backfill" | "incremental", userId: string, result: SyncResult): void {
+  const tokens = result.llmInputTokens + result.llmOutputTokens;
   console.log(
     `[sync/${kind}] user ${userId}: scanned ${result.scanned}, ` +
       `events ${result.eventsCreated} (rules ${result.rulesClassified}, llm ${result.llmClassified}), ` +
-      `llm=${result.llmCalls}→${result.llmClassified}, ` +
+      `llm=${result.llmCalls} calls→${result.llmClassified} events, ` +
+      `${tokens} tokens (${result.llmInputTokens} in / ${result.llmOutputTokens} out), ` +
+      `cost $${result.llmCostUsd.toFixed(6)}, ` +
       `apps ${result.applicationsCreated}, skipped ${result.skipped}` +
       (result.hasMore ? ", paused at cap (more to do)" : ""),
   );
@@ -247,14 +253,19 @@ async function processMessage(
       return "skipped";
     }
 
-    const { classification: cls, llmCalled } = await classifyEmailTraced({
+    const { classification: cls, llmCalled, usage, costUsd } = await classifyEmailTraced({
       from: extracted.from,
       subject: extracted.subject,
       bodyText: extracted.bodyText,
       receivedAt: extracted.receivedAt,
     });
-    // Billed whether or not it produced anything — count it before the bail-out.
-    if (llmCalled) result.llmCalls++;
+    // Billed whether or not it produced anything — bank the cost before the bail-out.
+    if (llmCalled) {
+      result.llmCalls++;
+      result.llmInputTokens += usage.inputTokens;
+      result.llmOutputTokens += usage.outputTokens;
+      result.llmCostUsd += costUsd;
+    }
 
     if (!cls || cls.event === "other") {
       result.skipped++;

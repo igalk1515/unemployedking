@@ -10,12 +10,28 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
-import type { ClassifiedEmail, EmailInput } from "@/lib/types";
+import type { ClassifiedEmail, EmailInput, LlmUsage } from "@/lib/types";
 
 const MODEL = "gemini-2.5-flash-lite";
 const MAX_OUTPUT_TOKENS = 512;
 const BODY_TRUNCATE_CHARS = 4000;
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * gemini-2.5-flash-lite list price, USD per 1M tokens (ai.google.dev/gemini-api/docs/pricing,
+ * checked 2026-07-12). Override via env when the price changes or you move tiers —
+ * the free tier is $0, so set both to 0 to stop counting phantom spend.
+ */
+const USD_PER_1M_INPUT = Number(process.env.GEMINI_USD_PER_1M_INPUT ?? 0.1);
+const USD_PER_1M_OUTPUT = Number(process.env.GEMINI_USD_PER_1M_OUTPUT ?? 0.4);
+
+/** What one call cost, from the token counts Gemini itself reports. */
+export function usageCostUsd(usage: LlmUsage): number {
+  return (
+    (usage.inputTokens / 1_000_000) * USD_PER_1M_INPUT +
+    (usage.outputTokens / 1_000_000) * USD_PER_1M_OUTPUT
+  );
+}
 
 /** Mirrors ClassifiedEmail minus `layer` (which this module stamps as "llm"). */
 const classificationSchema = z.object({
@@ -75,13 +91,25 @@ function normalizeField(value: string | null): string | null {
   return trimmed;
 }
 
+const NO_USAGE: LlmUsage = { inputTokens: 0, outputTokens: 0 };
+
+/** Classification plus the token usage Gemini reported (billed either way). */
+export interface TracedLlmResult {
+  classification: ClassifiedEmail | null;
+  usage: LlmUsage;
+}
+
 /**
- * Classify an email with gemini-2.5-flash-lite. Returns null when the API key is
- * missing, the call fails, or the model's output cannot be parsed.
+ * Classify an email with gemini-2.5-flash-lite, reporting token usage.
+ *
+ * Usage is captured even when the classification is null (empty response, schema
+ * violation): those calls are billed all the same, and pretending they were free
+ * is how an LLM bill surprises you. Only a call that never reached the API
+ * (missing key, transport error) reports zero.
  */
-export async function classifyByLLM(input: EmailInput): Promise<ClassifiedEmail | null> {
+export async function classifyByLLMTraced(input: EmailInput): Promise<TracedLlmResult> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { classification: null, usage: NO_USAGE };
 
   const body =
     input.bodyText.length > BODY_TRUNCATE_CHARS
@@ -101,31 +129,47 @@ export async function classifyByLLM(input: EmailInput): Promise<ClassifiedEmail 
       },
     });
 
+    // Thinking tokens bill as output, so fold them in rather than under-report.
+    const meta = response.usageMetadata;
+    const usage: LlmUsage = {
+      inputTokens: meta?.promptTokenCount ?? 0,
+      outputTokens: (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0),
+    };
+
     const text = response.text;
     if (!text) {
       console.warn(
         `[classifier/llm] empty response (finishReason=${response.candidates?.[0]?.finishReason}) — skipping message`,
       );
-      return null;
+      return { classification: null, usage };
     }
 
     const parsed = classificationSchema.safeParse(JSON.parse(text));
     if (!parsed.success) {
       console.warn(`[classifier/llm] output failed schema validation — skipping message`);
-      return null;
+      return { classification: null, usage };
     }
 
     return {
-      event: parsed.data.event,
-      company: normalizeField(parsed.data.company),
-      role: normalizeField(parsed.data.role),
-      confidence: parsed.data.confidence,
-      layer: "llm",
+      classification: {
+        event: parsed.data.event,
+        company: normalizeField(parsed.data.company),
+        role: normalizeField(parsed.data.role),
+        confidence: parsed.data.confidence,
+        layer: "llm",
+      },
+      usage,
     };
   } catch (error) {
     // Fail safe: the sync loop must keep going; this message is just skipped.
+    // No usageMetadata came back, so we can't attribute a cost to this call.
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`[classifier/llm] classification failed: ${detail}`);
-    return null;
+    return { classification: null, usage: NO_USAGE };
   }
+}
+
+/** Classification only, for callers that don't care what it cost. */
+export async function classifyByLLM(input: EmailInput): Promise<ClassifiedEmail | null> {
+  return (await classifyByLLMTraced(input)).classification;
 }

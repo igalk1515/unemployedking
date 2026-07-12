@@ -83,6 +83,43 @@ async function main(): Promise<void> {
     );
   }
   console.log();
+
+  printCostModel(totalEmailEvents);
+}
+
+/**
+ * What the LLM layer costs. The authoritative per-run spend is in the sync logs
+ * (`[sync/…] cost $…`), measured from Gemini's own token counts — the database
+ * can't hold it, because a billed call that classified nothing leaves no row.
+ * What we can do here is price a typical call and project it.
+ */
+function printCostModel(totalEmailEvents: number): void {
+  const inRate = Number(process.env.GEMINI_USD_PER_1M_INPUT ?? 0.1);
+  const outRate = Number(process.env.GEMINI_USD_PER_1M_OUTPUT ?? 0.4);
+
+  // A classify call: system prompt + headers + body truncated at 4000 chars,
+  // against a structured output capped at 512 tokens (typically ~40 used).
+  const TYPICAL_INPUT_TOKENS = 1200;
+  const TYPICAL_OUTPUT_TOKENS = 40;
+  const perCall =
+    (TYPICAL_INPUT_TOKENS / 1_000_000) * inRate + (TYPICAL_OUTPUT_TOKENS / 1_000_000) * outRate;
+
+  console.log("=== LLM cost model (gemini-2.5-flash-lite) ===\n");
+  console.log(`rates: $${inRate}/1M input, $${outRate}/1M output`);
+  console.log(
+    `typical call: ~${TYPICAL_INPUT_TOKENS} in + ~${TYPICAL_OUTPUT_TOKENS} out ≈ $${perCall.toFixed(6)}`,
+  );
+  console.log(`  1,000 LLM-classified emails ≈ $${(perCall * 1000).toFixed(2)}`);
+  console.log(`  a 1-year backfill that sends ~500 emails to the LLM ≈ $${(perCall * 500).toFixed(2)}`);
+  if (totalEmailEvents > 0) {
+    console.log(
+      `  every email event in this DB (${totalEmailEvents}), had they ALL gone to the LLM ≈ ` +
+        `$${(perCall * totalEmailEvents).toFixed(2)} (worst case; the rules layer handles most)`,
+    );
+  }
+  console.log(
+    "\nactual spend per sync run is logged: journalctl -u unemployedking | grep 'cost \\$'\n",
+  );
 }
 
 main()
