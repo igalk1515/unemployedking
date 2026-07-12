@@ -48,8 +48,11 @@ Rejections are framed as **proof of effort**. Celebrating them is the point.
 5. **Idempotency:** `Event.gmailMessageId` is unique. Check before insert;
    re-syncing the same messages must be a no-op.
 6. **Ghost sweeper (source=system):** for each application whose derived status is
-   `applied` or `interview`, with no `ghosted` event, and `appliedAt <
-   now - user.ghostAfterDays`: insert one `ghosted` event (occurredAt = now).
+   `applied` or `interview`, with no `ghosted` event, and whose last activity
+   (latest event, falling back to `appliedAt`) is older than
+   `now - user.ghostAfterDays`: insert one `ghosted` event, backdated to
+   `lastActivity + ghostAfterDays` (when the silence became a ghosting), so
+   backfilled history doesn't flood the current week with ghosts.
 
 ## 4. Module map & exported contracts
 

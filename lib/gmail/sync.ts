@@ -106,6 +106,8 @@ function emptySyncResult(): SyncResult {
     skipped: 0,
     errors: [],
     hasMore: false,
+    totalCandidates: 0,
+    remaining: 0,
   };
 }
 
@@ -264,6 +266,7 @@ interface BatchOutcome {
  * Only persisted events and errors count toward the cap (see the
  * MAX_NEW_MESSAGES_PER_RUN comment); errors are reported per message and
  * surfaced in `hadErrors` so callers can keep their cursors recoverable.
+ * Fills in result.totalCandidates/remaining so the client can show progress.
  */
 async function processMessages(
   userId: string,
@@ -274,14 +277,17 @@ async function processMessages(
 ): Promise<BatchOutcome> {
   let counted = 0;
   let hadErrors = false;
+  result.totalCandidates = ids.length;
+  result.remaining = 0;
 
-  for (const id of ids) {
+  for (let i = 0; i < ids.length; i++) {
     if (counted >= MAX_NEW_MESSAGES_PER_RUN) {
       // Hit the per-run cap: more messages remain. The caller sets
       // result.hasMore=true so the client keeps calling until a run completes.
+      result.remaining = ids.length - i;
       return { completed: false, hadErrors };
     }
-    const outcome = await processMessage(userId, s, id, result, opts.gate);
+    const outcome = await processMessage(userId, s, ids[i], result, opts.gate);
     if (outcome === "error") hadErrors = true;
     if (outcome === "new" || outcome === "error") counted++;
   }
@@ -290,11 +296,16 @@ async function processMessages(
 }
 
 /**
- * Collect EVERY id matching a query (ids only — cheap), oldest first.
- * messages.list returns newest-first; processing in that order would file
- * rejections before their applications exist and strand them as orphans, so
- * we reverse to chronological order. With the cap taking the oldest
- * unprocessed ids first, resumed runs keep moving forward in time.
+ * Collect EVERY id matching a query (ids only — cheap), newest first — the
+ * order messages.list already returns. Fresh mail lands on the dashboard in
+ * the first batch, so a user watching their first backfill sees their current
+ * hunt immediately instead of year-old history.
+ *
+ * Rejections processed before their application exists land as orphan events;
+ * when the (older) confirmation later creates the Application it adopts
+ * orphans from its own Gmail thread (see linker.ts), which covers the common
+ * ATS same-thread reply. Cross-thread rejections without a resident
+ * application stay orphaned — they still count toward totals (DESIGN §4.4).
  */
 async function collectQueryIds(s: GmailSession, q: string): Promise<string[]> {
   const ids: string[] = [];
@@ -306,7 +317,7 @@ async function collectQueryIds(s: GmailSession, q: string): Promise<string[]> {
     pageToken = page.nextPageToken;
   } while (pageToken);
 
-  return ids.reverse();
+  return ids;
 }
 
 /** Run a Gmail search query, processing every hit oldest → newest. */

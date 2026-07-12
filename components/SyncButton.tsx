@@ -1,10 +1,10 @@
 "use client";
 
 // "Sync now" — drives /api/sync in small batches. Each call processes a capped
-// chunk and returns `hasMore`; we keep calling until it's false, showing running
-// totals as rejections land, and refresh the server components after each batch
-// so the tables fill in progressively. No single long request => no 504, no
-// spinner-of-death on a big first backfill.
+// chunk and returns `hasMore` plus progress totals; we keep calling until
+// hasMore is false, painting a progress bar as rejections land, and refresh
+// the server components after each batch so the tables fill in progressively.
+// No single long request => no 504, no spinner-of-death on a big first backfill.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -21,9 +21,16 @@ interface Totals {
   errors: string[];
 }
 
+interface Progress {
+  /** 0..1 of the current run's candidate list, null before the first batch lands. */
+  fraction: number | null;
+  processed: number;
+  total: number;
+}
+
 type SyncState =
   | { phase: "idle" }
-  | { phase: "syncing"; totals: Totals }
+  | { phase: "syncing"; totals: Totals; progress: Progress }
   | { phase: "done"; totals: Totals }
   | { phase: "error"; message: string; totals: Totals | null; reconnect?: boolean };
 
@@ -65,6 +72,14 @@ function isSyncResult(body: unknown): body is SyncResult {
   );
 }
 
+function progressFrom(result: SyncResult): Progress {
+  const total = typeof result.totalCandidates === "number" ? result.totalCandidates : 0;
+  const remaining = typeof result.remaining === "number" ? result.remaining : 0;
+  if (total <= 0) return { fraction: null, processed: 0, total: 0 };
+  const processed = Math.max(0, total - remaining);
+  return { fraction: Math.min(1, processed / total), processed, total };
+}
+
 export function SyncButton() {
   const router = useRouter();
   const [state, setState] = useState<SyncState>({ phase: "idle" });
@@ -73,7 +88,11 @@ export function SyncButton() {
   async function handleSync() {
     if (syncing) return;
     const totals = emptyTotals();
-    setState({ phase: "syncing", totals: { ...totals } });
+    setState({
+      phase: "syncing",
+      totals: { ...totals },
+      progress: { fraction: null, processed: 0, total: 0 },
+    });
 
     try {
       for (let i = 0; i < MAX_BATCHES; i++) {
@@ -81,7 +100,7 @@ export function SyncButton() {
         const body: unknown = await res.json().catch(() => null);
 
         if (res.status === 429) {
-          // Cooldown armed. If we already imported something, we're just done.
+          // Cooldown / budget armed. If we already imported something, we're done.
           if (totals.batches > 0) break;
           setState({ phase: "error", message: extractError(body, res.status), totals: null });
           return;
@@ -110,7 +129,7 @@ export function SyncButton() {
         totals.applicationsCreated += body.applicationsCreated;
         for (const e of body.errors) if (!totals.errors.includes(e)) totals.errors.push(e);
 
-        setState({ phase: "syncing", totals: { ...totals } });
+        setState({ phase: "syncing", totals: { ...totals }, progress: progressFrom(body) });
         router.refresh(); // stream fresh rows into the tables as each batch lands
 
         if (!body.hasMore) break;
@@ -127,33 +146,20 @@ export function SyncButton() {
     }
   }
 
-  const label =
-    state.phase === "syncing"
-      ? state.totals.eventsCreated > 0
-        ? `Counting the bodies… ${state.totals.eventsCreated} found`
-        : "Digging through your inbox…"
-      : "Sync now";
-
   return (
     <div>
       <button
         type="button"
         onClick={handleSync}
         disabled={syncing}
-        className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-bg transition-colors hover:bg-gold/85 disabled:cursor-wait disabled:opacity-60"
+        className="w-full rounded-lg bg-gold px-5 py-2.5 text-base font-semibold text-bg transition-colors hover:bg-gold/85 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
       >
-        {label}
+        {syncing ? "Digging…" : "Sync now"}
       </button>
 
       <div aria-live="polite">
         {state.phase === "syncing" ? (
-          <p className="mt-3 rounded-lg border border-edge bg-bg px-3 py-2 text-xs text-ink-2">
-            <span aria-hidden="true">⛏️</span> Scanning your inbox in batches…{" "}
-            <span className="tabular-nums text-ink">
-              {state.totals.eventsCreated} events · {state.totals.applicationsCreated} applications
-            </span>{" "}
-            so far. You can keep using the dashboard while this runs.
-          </p>
+          <SyncProgress totals={state.totals} progress={state.progress} />
         ) : null}
 
         {state.phase === "done" ? <SyncSummary totals={state.totals} /> : null}
@@ -181,6 +187,51 @@ export function SyncButton() {
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function SyncProgress({ totals, progress }: { totals: Totals; progress: Progress }) {
+  const pct = progress.fraction !== null ? Math.round(progress.fraction * 100) : null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-edge bg-bg px-3 py-2.5 text-xs text-ink-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium text-ink">
+          <span aria-hidden="true">⛏️</span>{" "}
+          {totals.eventsCreated > 0
+            ? `Counting the bodies… ${totals.eventsCreated} found`
+            : "Digging through your inbox…"}
+        </p>
+        {pct !== null ? <p className="tabular-nums text-ink">{pct}%</p> : null}
+      </div>
+
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct ?? undefined}
+        aria-label="Sync progress"
+        className="mt-2 h-2 overflow-hidden rounded-full bg-edge/60"
+      >
+        <div
+          className={`h-full rounded-full bg-gold transition-[width] duration-500 ${
+            pct === null ? "w-1/5 animate-pulse" : ""
+          }`}
+          style={pct !== null ? { width: `${Math.max(pct, 3)}%` } : undefined}
+        />
+      </div>
+
+      <p className="mt-2 tabular-nums text-ink-muted">
+        {progress.total > 0
+          ? `${progress.processed.toLocaleString()} of ${progress.total.toLocaleString()} candidate emails · `
+          : null}
+        {totals.eventsCreated} events · {totals.applicationsCreated} applications ·{" "}
+        {totals.batches} batch{totals.batches === 1 ? "" : "es"}
+      </p>
+      <p className="mt-1 text-ink-muted">
+        Newest mail lands first. You can keep using the dashboard while this runs.
+      </p>
     </div>
   );
 }

@@ -92,6 +92,15 @@ export interface SyncResult {
    * long request.
    */
   hasMore: boolean;
+  /**
+   * Progress for the sync UI. totalCandidates = how many candidate messages
+   * this run listed (query hits or history feed); remaining = how many of
+   * those were not reached before the run stopped (0 when the run completed).
+   * Already-synced messages skip instantly, so progress leaps forward on
+   * resumed runs instead of restarting from zero.
+   */
+  totalCandidates: number;
+  remaining: number;
 }
 
 export interface Badge {
