@@ -1,5 +1,16 @@
 // POST /api/sync — pull fresh misery from Gmail.
 // Backfill on first run, incremental (history.list) after that.
+//
+// Cost guardrails: every run re-classifies borderline mail that produced no
+// event last time (Gemini bills per call), so sync spam is real money. Three
+// layers keep it in check:
+//   1. A per-user in-flight lock — two syncs can't run concurrently, so a
+//      double-click or second tab can't double-bill the same messages.
+//   2. A rolling per-user hourly budget on sync runs — generous enough for a
+//      full backfill's batch loop, a wall for autoclicker enthusiasm.
+//   3. The existing 60s cooldown once an account is fully caught up.
+// The lock and budget live in module scope: fine for the single-process
+// systemd deploy; a multi-instance deploy would need shared storage.
 
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
@@ -7,6 +18,26 @@ import { GmailApiError, GmailAuthError } from "@/lib/gmail/client";
 import { runBackfill, runIncrementalSync } from "@/lib/gmail/sync";
 
 const SYNC_COOLDOWN_MS = 60_000;
+const HOUR_MS = 3_600_000;
+/** Max sync runs per user per rolling hour. A full first backfill loops up to
+ * 50 batches in one click; this leaves headroom for a retry or two on top. */
+const MAX_RUNS_PER_HOUR = 100;
+
+const inFlight = new Set<string>();
+const runLog = new Map<string, number[]>();
+
+/** Record a run attempt; false when the rolling hourly budget is exhausted. */
+function takeRunBudget(userId: string): boolean {
+  const now = Date.now();
+  const recent = (runLog.get(userId) ?? []).filter((t) => now - t < HOUR_MS);
+  if (recent.length >= MAX_RUNS_PER_HOUR) {
+    runLog.set(userId, recent);
+    return false;
+  }
+  recent.push(now);
+  runLog.set(userId, recent);
+  return true;
+}
 
 export async function POST(): Promise<Response> {
   const session = await auth();
@@ -33,6 +64,13 @@ export async function POST(): Promise<Response> {
     );
   }
 
+  if (inFlight.has(userId)) {
+    return Response.json(
+      { error: "A sync is already running. One shovel per grave, please." },
+      { status: 429 },
+    );
+  }
+
   // Cooldown — but never in the way of a backfill in progress: a paused
   // backfill keeps backfillDone=false, and a capped/failed incremental run
   // doesn't advance lastSyncedAt, so quick "resume" clicks sail through.
@@ -48,6 +86,17 @@ export async function POST(): Promise<Response> {
     );
   }
 
+  if (!takeRunBudget(userId)) {
+    return Response.json(
+      {
+        error:
+          "That's enough syncing for one hour. Every click costs us actual money, and unlike you, we can't expense the grief. Come back later.",
+      },
+      { status: 429 },
+    );
+  }
+
+  inFlight.add(userId);
   try {
     const result = account.backfillDone
       ? await runIncrementalSync(userId)
@@ -86,5 +135,7 @@ export async function POST(): Promise<Response> {
       },
       { status: 500 },
     );
+  } finally {
+    inFlight.delete(userId);
   }
 }

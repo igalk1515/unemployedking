@@ -98,6 +98,48 @@ async function getGmailState(userId: string): Promise<GmailState> {
   return { kind: 'unconfigured' };
 }
 
+/**
+ * The primary call-to-action: front and center under the header, not buried
+ * in a settings card. Only renders when a Gmail account is actually synced.
+ */
+function SyncHero({
+  state,
+  backfillWindowDays,
+}: {
+  state: Extract<GmailState, { kind: 'connected' }>;
+  backfillWindowDays: number;
+}) {
+  return (
+    <section
+      aria-label="Gmail sync"
+      className="mt-6 rounded-xl border-2 border-gold/40 bg-surface p-4 sm:p-5"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-gold">
+          📥 Harvest your inbox
+        </h2>
+        <p className="text-xs text-ink-muted">
+          <span className="font-medium text-ink-2">{state.address}</span>
+          {' · '}
+          {state.lastSyncedAt
+            ? `last swept ${timeAgo(state.lastSyncedAt)}`
+            : 'never synced'}
+        </p>
+      </div>
+      <p className="mt-1 text-xs text-ink-muted">
+        {state.lastSyncedAt
+          ? state.backfillDone
+            ? 'Pull whatever bad news arrived since last time. Newest mail lands first.'
+            : 'The backfill is still mid-dig — hit Sync to keep excavating. Newest mail lands first.'
+          : `First sync digs through the last ${windowLabel(backfillWindowDays)} of damage, newest mail first.`}
+      </p>
+      <div className="mt-3">
+        <SyncButton />
+      </div>
+    </section>
+  );
+}
+
 function GmailCard({
   state,
   backfillWindowDays,
@@ -126,11 +168,9 @@ function GmailCard({
             {state.backfillDone ? '' : ' Backfill still pending.'}
           </p>
           <p className="mt-1 text-xs text-ink-muted">
-            Read-only. We count the bodies. We never touch them.
+            Read-only. We count the bodies. We never touch them. The Sync
+            button lives in the big gold panel up top.
           </p>
-          <div className="mt-4">
-            <SyncButton />
-          </div>
           <form
             action={updateSyncSettings}
             className="mt-4 flex flex-wrap items-center gap-2 border-t border-edge pt-3"
@@ -744,6 +784,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           <span aria-hidden="true">✅</span> Access list cleared. New requests will
           show up here as they come in.
         </div>
+      ) : null}
+
+      {/* The main event: sync sits at the top, impossible to miss */}
+      {gmail.kind === 'connected' ? (
+        <SyncHero state={gmail} backfillWindowDays={backfillWindowDays} />
       ) : null}
 
       {/* Owner-only: friends waiting to be added to the Google test-user list */}
