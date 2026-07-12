@@ -69,6 +69,12 @@ export function parseHiddenProfileFields(
  */
 export type ClassifierLayer = "rules" | "llm";
 
+/** Token counts reported by the LLM for one call. Billed whatever the outcome. */
+export interface LlmUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 /** Output of the email classifier (rules layer or LLM layer). */
 export interface ClassifiedEmail {
   event: "applied_confirmation" | "rejection" | "interview_invite" | "offer" | "other";
@@ -118,6 +124,11 @@ export interface SyncResult {
   rulesClassified: number;
   llmClassified: number;
   llmCalls: number;
+  /** Tokens the LLM actually billed us for across this run. */
+  llmInputTokens: number;
+  llmOutputTokens: number;
+  /** Those tokens priced at the current per-1M rates. USD. */
+  llmCostUsd: number;
 }
 
 export interface Badge {

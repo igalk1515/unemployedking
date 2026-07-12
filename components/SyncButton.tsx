@@ -24,6 +24,8 @@ interface Totals {
   llmClassified: number;
   /** Gemini calls made — billed whether or not they yielded an event. */
   llmCalls: number;
+  /** What those calls actually cost, from Gemini's own token counts. USD. */
+  llmCostUsd: number;
   errors: string[];
 }
 
@@ -49,6 +51,7 @@ function emptyTotals(): Totals {
     rulesClassified: 0,
     llmClassified: 0,
     llmCalls: 0,
+    llmCostUsd: 0,
     errors: [],
   };
 }
@@ -85,6 +88,13 @@ function isSyncResult(body: unknown): body is SyncResult {
     typeof (body as SyncResult).hasMore === "boolean" &&
     Array.isArray((body as SyncResult).errors)
   );
+}
+
+/** Sub-cent sums are the norm here, so don't round them to a meaningless "$0.00". */
+function formatUsd(usd: number): string {
+  if (usd <= 0) return "$0";
+  if (usd < 0.01) return `<$0.01`;
+  return `$${usd.toFixed(2)}`;
 }
 
 function progressFrom(result: SyncResult): Progress {
@@ -145,6 +155,7 @@ export function SyncButton() {
         totals.rulesClassified += body.rulesClassified ?? 0;
         totals.llmClassified += body.llmClassified ?? 0;
         totals.llmCalls += body.llmCalls ?? 0;
+        totals.llmCostUsd += body.llmCostUsd ?? 0;
         for (const e of body.errors) if (!totals.errors.includes(e)) totals.errors.push(e);
 
         setState({ phase: "syncing", totals: { ...totals }, progress: progressFrom(body) });
@@ -273,10 +284,11 @@ function SyncSummary({ totals }: { totals: Totals }) {
         <span aria-hidden="true">📐</span> rules {totals.rulesClassified} ·{" "}
         <span aria-hidden="true">🤖</span> AI {totals.llmClassified}
         {totals.llmCalls > 0 ? (
-          <span className="text-ink-muted">
+          <>
             {" "}
-            (from {totals.llmCalls} AI read{totals.llmCalls === 1 ? "" : "s"})
-          </span>
+            (from {totals.llmCalls} AI read{totals.llmCalls === 1 ? "" : "s"}, cost{" "}
+            {formatUsd(totals.llmCostUsd)})
+          </>
         ) : null}
       </p>
       {totals.errors.length > 0 ? (
