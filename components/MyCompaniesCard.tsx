@@ -65,11 +65,12 @@ export function MyCompaniesCard({
       className="mt-6 rounded-xl border border-edge bg-surface p-4 sm:p-5"
     >
       <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-2">
-        🏢 Your personal wall of shame
+        🏢 Your companies, ranked
       </h2>
       <p className="mt-1 text-xs text-ink-muted">
-        Who did this to you, ranked. Private to you — nobody else sees this, and
-        it says nothing about how these companies treat anyone else.
+        Where your applications went. Private to you — nobody else sees this,
+        and it says nothing about how these companies treat anyone else. No
+        reply means none was detected in your inbox within 30 days.
       </p>
 
       {empty ? (
@@ -81,10 +82,10 @@ export function MyCompaniesCard({
         <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <CompanyColumn
             emoji="👻"
-            title="Ghosted you most"
+            title="No reply from"
             entries={ghostedMe}
-            valueLabel="ghosts"
-            emptyText="Nobody has ghosted you. Genuinely suspicious."
+            valueLabel="silent"
+            emptyText="Everyone answered you. Genuinely unheard of."
           />
           <CompanyColumn
             emoji="💀"
